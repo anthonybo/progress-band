@@ -12,8 +12,8 @@ echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "usage: sh tools/relea
 [ -z "$(git status --porcelain)" ] || { echo "commit or stash your changes first" >&2; exit 1; }
 git rev-parse -q --verify "refs/tags/v$v" >/dev/null && { echo "v$v already exists" >&2; exit 1; }
 
-claude plugin validate . >/dev/null
-claude plugin test . >/dev/null || { echo "tests failed: claude plugin test ." >&2; exit 1; }
+claude plugin validate . >/dev/null 2>&1
+claude plugin test . >/dev/null 2>&1 || { echo "tests failed: claude plugin test ." >&2; exit 1; }
 
 tmp="$(mktemp)"
 sed -E "s/(\"version\": *\")[^\"]+(\")/\1$v\2/" .claude-plugin/plugin.json >"$tmp" && mv "$tmp" .claude-plugin/plugin.json
