@@ -41,9 +41,11 @@ test('draws the README sample: bars, a note row and agents, still and mid-change
   on('agent.list', () => ({ value: AGENTS }))
   on('session.start', ($, e) => e)
   on('command.register', () => ({ value: undefined }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
   await clock.advance(23 * 60000) // the agents have been running a while
   await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
-  await clock.advance(23 * 60000)
+  await $.turn.start({ text: 'Finish the docs site with the team', turnId: 't1' }) // the lead, at work too
+  await clock.advance(31 * 60000)
 
   const ui = await $.ui.mount({ plugin: 'progress-band', surface: 'terminal', ...band(64) } as never)
   expect(await ui.find({ type: 'Text', text: /18\/24/ })).toBeDefined()

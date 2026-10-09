@@ -1,9 +1,9 @@
 # progress-band
 
 A live progress band above the Claude Code prompt: a bar for every step of the work Claude is doing, and
-the status of every agent and teammate it has running.
+the status of the lead (the Claude you talk to) and every agent and teammate it has running.
 
-<img src="docs/band-still.svg" alt="The band above the prompt: three progress bars (Pages written 18/24, Screenshots 4/12, Link check 211/214), a status line for a review, and three agents with their status, run time and task" width="100%">
+<img src="docs/band-still.svg" alt="The band above the prompt: three progress bars (Pages written 18/24, Screenshots 4/12, Link check 211/214), a status line for a review, then the lead and three agents with their status, run time and task" width="100%">
 
 When anything changes, a rainbow runs round the frame for 15 seconds: the bar that moved shows a sliding
 barber pole, and an agent that started, went idle or finished shows its name in a moving rainbow. Between
@@ -13,7 +13,8 @@ changes nothing animates, so an idle band costs nothing.
 
 The plugin teaches Claude to keep the band current, so there is nothing to set up per project: when
 Claude starts multi-step work, a batch job or a team of agents, it writes a small progress file and
-updates it as steps finish.
+updates it as steps finish. That holds when the lead works alone too, with no teammates: its own steps get
+bars the same way.
 
 ---
 
@@ -70,6 +71,10 @@ progress-band was built in [cmux](https://github.com/manaflow-ai/cmux), and it i
 ## Using it
 
 - `/progress` hides or shows the band.
+- **The lead has a row too.** While the main session works on a prompt, the band shows
+  `● lead running · 4m · <the prompt's first line>`. It appears once a turn has run 30 seconds (at once
+  if the band already has other rows), so quick answers never bring the band up, and it leaves when the
+  turn ends.
 - A bar at 100% stays two minutes so its completion is seen, then leaves. It returns if its count
   changes. That clock is kept between sessions, so reopening a session does not bring finished work back.
 - A row without a total (a `note`) never ages out. Delete it, or its file, when the job is done; Claude

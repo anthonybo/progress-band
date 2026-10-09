@@ -148,6 +148,66 @@ test('tells Claude how to write progress files, in the folder of whatever comput
   }
 })
 
+test('the lead gets a row while it works: after 30 s alone, and gone when its turn ends', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('fs.list', () => ({ value: [] }))
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', ($, e) => e)
+  on('command.register', () => ({ value: undefined }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  // Stands in for the engine's own (empty) band beneath the plugin.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return h(Text, {}, 'engine band')
+  })
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'progress-band', surface: 'terminal', ...band(80) } as never)
+  // The row's status text; its name is drawn a letter at a time while the rainbow runs.
+  const lead = { type: 'Text', text: /running · \d+m · Add a lead row to the band$/ } as const
+
+  await $.turn.start({ text: '[Image #3] Add a lead row to the band\nand test it', turnId: 't1' })
+  await clock.advance(10000) // a quick answer never brings the band up
+  expect(await ui.find(lead)).toBeUndefined()
+
+  await clock.advance(25000) // past 30 s of work
+  expect(await ui.find(lead)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Image #3|and test it/ })).toBeUndefined() // first line, no image tags
+
+  // A subagent's turn ending is not the lead's.
+  await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 's1', agentId: 'a9', reason: 'answer' } as never)
+  await clock.advance(5000)
+  expect(await ui.find(lead)).toBeDefined()
+
+  await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  await clock.advance(5000)
+  expect(await ui.find(lead)).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a turn already running when the plugin loads still gets a lead row, from the working flag', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('fs.list', () => ({ value: [] }))
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', ($, e) => e)
+  on('command.register', () => ({ value: undefined }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return h(Text, {}, 'engine band')
+  })
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+  const working = band(80)
+  working.props.isWorking = true
+  const ui = await $.ui.mount({ plugin: 'progress-band', surface: 'terminal', ...working } as never)
+  await clock.advance(35000)
+  expect(await ui.find({ type: 'Text', text: /^running · \d+m$/ })).toBeDefined() // no prompt known, no " · "
+  await ui.unmount()
+})
+
 test('a teammate session (launched inside another Claude session) draws no band', async ($, on) => {
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : e.name === 'CLAUDECODE' ? '1' : undefined }))
   on('fs.write', () => ({ value: undefined }))

@@ -214,6 +214,19 @@ function startRainbow($: EngineInterface, now: number) {
   stopRainbow = () => timer.cancel()
 }
 
+// The lead (the main agent) is in no agent list, so the band follows its turns itself: `turn.start` fires for
+// the main loop alone, and `turn.complete` without an agentId is the main loop's. Its row shows once a turn
+// has run LEAD_SHOW_MS, or at once when the band has other rows, so a quick answer never brings the band up.
+const LEAD_ID = 'lead'
+const LEAD_SHOW_MS = 30000
+let leadTurn: { since: number; task: string } | undefined
+
+/** What the lead is working on: the prompt's first line, without pasted-image tags. */
+function summarize(text: string): string {
+  const line = text.replace(/\[Image #\d+\]/g, '').trim().split('\n')[0]!.replace(/\s+/g, ' ').trim()
+  return line.length > 72 ? line.slice(0, 71) + '…' : line
+}
+
 async function refresh($: EngineInterface) {
   const errors: string[] = []
   const now = await $.clock.now()
@@ -232,6 +245,9 @@ async function refresh($: EngineInterface) {
         since: firstSeen.get(a.id) ?? now,
       }
     })
+  if (leadTurn !== undefined && (now - leadTurn.since >= LEAD_SHOW_MS || items.length > 0 || agents.length > 0)) {
+    agents.unshift({ id: LEAD_ID, name: 'lead', description: leadTurn.task, status: 'running', since: leadTurn.since })
+  }
   // An agent gone from the list is forgotten, so one restarted under the same name counts from its new start.
   const present = new Set(agents.map(a => a.id))
   for (const id of [...firstSeen.keys()]) if (!present.has(id)) firstSeen.delete(id)
@@ -273,7 +289,7 @@ const instructions = (dir: string) => `# Progress band
 
 The user has the progress-band plugin: a live band above their prompt that draws a bar per row of every JSON file in ${dir}/, plus each agent's status. It only shows work you record, so record it.
 
-When you start work that has several steps and will take more than a few minutes (a multi-step plan, a batch job, a team of agents), write ${dir}/<project-or-job>.json:
+When you start work that has several steps and will take more than a few minutes (a multi-step plan, a batch job, a team of agents), write ${dir}/<project-or-job>.json. This holds just as much when you do the work yourself with no agents: the band shows your own steps the same way, and it already shows you as "lead" while you work. The format:
 
 { "title": "<project>", "items": [
   { "label": "Pages written", "done": 3, "total": 12 },
@@ -309,6 +325,25 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('turn.start', async ($, e, next) => {
+    if (!isTeammate) {
+      // A continuation (no typed prompt) keeps the task and start of the turn it continues.
+      const task = summarize(e.text)
+      if (leadTurn === undefined || task !== '') {
+        leadTurn = { since: await $.clock.now(), task: task || (leadTurn?.task ?? '') }
+      }
+    }
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined && leadTurn !== undefined) {
+      leadTurn = undefined
+      void refresh($)
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'progress' }, async $ => {
     const hidden = await read($, isHidden)
     await update($, isHidden, () => !hidden)
@@ -317,6 +352,12 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // A turn already under way when the plugin (re)loaded raised no turn.start: the engine's own "working"
+    // flag starts the lead's clock instead, with no prompt to name.
+    if (!isTeammate && e.props.isWorking && leadTurn === undefined) {
+      leadTurn = { since: await $.clock.now(), task: '' }
+      void refresh($)
+    }
     const snap = await read($, snapshot)
     if (isTeammate || e.props.hasSurvey || (await read($, isHidden)) || snap === null) return next(e)
     if (snap.items.length === 0 && snap.agents.length === 0 && snap.errors.length === 0) return next(e)
@@ -400,7 +441,7 @@ export const register: Register = on => {
                 <Text color={color}>{dot}</Text> {a.name}
               </Text>
             )}{' '}
-            <Text dimColor>{a.status} · {mins}m · {a.description}</Text>
+            <Text dimColor>{a.status} · {mins}m{a.description !== '' ? ` · ${a.description}` : ''}</Text>
           </Text>,
         )
       }
