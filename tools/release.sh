@@ -20,5 +20,5 @@ sed -E "s/(\"version\": *\")[^\"]+(\")/\1$v\2/" .claude-plugin/plugin.json >"$tm
 grep -q "\"version\": \"$v\"" .claude-plugin/plugin.json || { echo "could not set the version" >&2; exit 1; }
 git add .claude-plugin/plugin.json
 git commit -q -m "Release $v"
-git tag "v$v"
+git tag -a "v$v" -m "Release $v"
 echo "v$v committed and tagged. Publish it with: git push --follow-tags"
