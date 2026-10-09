@@ -1,6 +1,6 @@
 {
   "name": "progress-band",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A live band above the prompt: a bar for each row of ~/.claude/progress/*.json and every agent's status. Teaches Claude to keep those files current.",
   "author": { "name": "anthonybo", "url": "https://github.com/anthonybo" },
   "homepage": "https://github.com/anthonybo/progress-band",
