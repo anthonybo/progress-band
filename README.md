@@ -63,8 +63,12 @@ progress-band was built in [cmux](https://github.com/manaflow-ai/cmux), and it i
 - **Only the lead pane draws the band.** Agent-team teammates that cmux opens in their own panes are
   detected (they inherit `CLAUDECODE` from the lead) and draw nothing, so a screen of teammate panes does
   not repeat the band in every one. The lead's band lists every teammate with its status.
-- **Teammates still report.** The instructions reach teammates too, so their progress files show on the
-  lead's band.
+- **Each lead sees only its own work.** Every lead session reads and writes its own folder,
+  `~/.claude/progress/<session id>/`, so a session in one project never shows another project's bars (or
+  another lead's in the same project). The folder is fixed when the session starts, so `/clear` keeps it.
+- **Teammates leave the files to their lead.** A teammate cannot learn its lead's folder, so its
+  instructions say not to write progress files and to report to the lead, who records the team's steps.
+  The band still shows every teammate's own status row.
 - **Fits narrow panes.** The band is one row per bar and no padding; it fits a pane from 34 columns, and
   bars shrink before labels do.
 
@@ -83,8 +87,10 @@ progress-band was built in [cmux](https://github.com/manaflow-ai/cmux), and it i
 ### Progress files
 
 Claude writes these itself, but anything can: a script, a build, you. One JSON file per project or job in
-`~/.claude/progress/` (`$CLAUDE_CONFIG_DIR/progress/` if you set that; `%USERPROFILE%\.claude\progress\`
-on Windows). The band groups rows by `title` (the file name when absent):
+the session's folder, `~/.claude/progress/<session id>/` (under `$CLAUDE_CONFIG_DIR/progress/` if you set
+that; `%USERPROFILE%\.claude\progress\` on Windows). Claude is told the exact path; a script writing for a
+session needs that session's id. Files directly in `~/.claude/progress/` are no longer shown. The band
+groups rows by `title` (the file name when absent):
 
 ```json
 {
@@ -122,7 +128,8 @@ claude plugin uninstall progress-band@progress-band
 claude plugin marketplace remove progress-band
 ```
 
-Progress files in `~/.claude/progress/` are left alone; delete the folder if you want them gone.
+Progress files in `~/.claude/progress/` and its session folders are left alone; delete the folder if you
+want them gone.
 
 ## Development
 
