@@ -35,6 +35,15 @@ async function progressDir($: EngineInterface): Promise<string> {
   return `${home}/.claude/progress`
 }
 
+// Each lead session reads and writes only its own subfolder, keyed by the id it started with, so two sessions
+// (two projects, or two leads in one) never show each other's bars; a later /clear keeps the same folder.
+let sessionDir = ''
+async function sessionProgressDir($: EngineInterface): Promise<string> {
+  const base = await progressDir($)
+  const id = await $.session.id().catch(() => '')
+  return id ? `${base}/${id}` : base
+}
+
 async function readItems($: EngineInterface, dir: string, errors: string[]): Promise<ProgressItem[]> {
   const entries = await $.fs.list(dir).catch(() => [])
   const files = entries.filter(f => f.kind === 'file' && f.name.endsWith('.json')).map(f => f.name).sort()
@@ -231,7 +240,7 @@ async function refresh($: EngineInterface) {
   const errors: string[] = []
   const now = await $.clock.now()
   await loadClocks($)
-  const allItems = await readItems($, await progressDir($), errors)
+  const allItems = await readItems($, sessionDir, errors)
   const items = allItems.filter(it => !isFinishedLongAgo(it, now))
   const agents: AgentRow[] = (await $.agent.list().catch(() => []))
     .filter(a => !HIDDEN_STATUS.has(a.status))
@@ -281,13 +290,16 @@ async function refresh($: EngineInterface) {
 // own process does not have it. Only the lead shows the band.
 let isTeammate = false
 
-// The band only has bars if Claude writes progress files, so the plugin tells it how: one section at the end
-// of the system prompt, in every session (a teammate's work shows on its lead's band). The text depends only
-// on the folder, so it never spends the prompt cache.
+// The band only has bars if Claude writes progress files, so the plugin tells the lead how: one section at the
+// end of the system prompt, naming the session's own folder. The text depends only on that folder, so it never
+// spends the prompt cache. A teammate cannot learn its lead's folder, so it is told to leave the files to the lead.
 let promptDir = '~/.claude/progress'
+const teammateNote = `# Progress band
+
+The user's progress band belongs to your lead: it already shows your status as an agent row. Do not write progress files; report progress to your lead, who records the team's steps.`
 const instructions = (dir: string) => `# Progress band
 
-The user has the progress-band plugin: a live band above their prompt that draws a bar per row of every JSON file in ${dir}/, plus each agent's status. It only shows work you record, so record it.
+The user has the progress-band plugin: a live band above their prompt that draws a bar per row of every JSON file in ${dir}/, plus each agent's status. That folder is this session's own (create it if missing); other sessions' bands never show it, and this band shows nothing written anywhere else. It only shows work you record, so record it.
 
 When you start work that has several steps and will take more than a few minutes (a multi-step plan, a batch job, a team of agents), write ${dir}/<project-or-job>.json. This holds just as much when you do the work yourself with no agents: the band shows your own steps the same way, and it already shows you as "lead" while you work. The format:
 
@@ -301,17 +313,26 @@ When you start work that has several steps and will take more than a few minutes
 - \`countLines\`: an absolute path (or a list of them) whose non-empty lines are counted for you; prefer it when the work produces one line per item, so the bar is measured rather than typed.
 - \`note\` alone: a status line with no bar, for work with no honest percentage.
 - Count the whole pipeline, not just the building: include review, tests and install as steps, and use a note to name the current stage, so a bar never sits at "done" while work goes on.
+- Rows are your own work only. Never add a bar for something the user has to do (their test, a push, an approval); when you are waiting on them, say so in the note.
 - Delete the row or the file when the job is finished. Skip it for quick, single-step tasks.
 - Labels are short (about 16 characters show). Keep one file per project and update it in place.`
 
 export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const { sections } = await next(e)
-    return { sections: [...sections, { id: 'progress-band:instructions', text: instructions(promptDir), scope: 'session' }] }
+    // Read here too: the prompt can be composed before session.start has run.
+    const teammate = (await $.env.get('CLAUDECODE')) !== undefined
+    if (!teammate && sessionDir === '') {
+      sessionDir = await sessionProgressDir($)
+      promptDir = sessionDir
+    }
+    const text = teammate ? teammateNote : instructions(promptDir)
+    return { sections: [...sections, { id: 'progress-band:instructions', text, scope: 'session' }] }
   })
 
   on('session.start', async ($, e, next) => {
-    promptDir = await progressDir($)
+    sessionDir = await sessionProgressDir($)
+    promptDir = sessionDir
     isTeammate = (await $.env.get('CLAUDECODE')) !== undefined
     if (isTeammate) return next(e)
     await $.command.register({

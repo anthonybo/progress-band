@@ -231,3 +231,48 @@ test('a teammate session (launched inside another Claude session) draws no band'
   expect(await ui.find({ type: 'Text', text: /Pages/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test("each lead's band shows only its own session's folder, not another session's or the shared top level", async ($, on) => {
+  const file = (name: string) => [{ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false }]
+  const listings: Record<string, ReturnType<typeof file>> = {
+    [`${HOME}/.claude/progress`]: file('devrig.json'),
+    [`${HOME}/.claude/progress/sess-A`]: file('mine.json'),
+    [`${HOME}/.claude/progress/sess-B`]: file('theirs.json'),
+  }
+  const doc = (title: string, label: string) => JSON.stringify({ title, items: [{ label, done: 1, total: 2 }] })
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('session.id', () => ({ value: 'sess-A' }))
+  on('fs.list', ($, e) => ({ value: listings[e.path] ?? [] }))
+  on('fs.read', ($, e) => ({
+    value: e.path.endsWith('mine.json') ? doc('Mine', 'My step') : e.path.endsWith('theirs.json') ? doc('Theirs', 'Their step') : doc('DevRig', 'Drag fix'),
+  }))
+  on('fs.exists', () => ({ value: true }))
+  on('clock.now', () => ({ value: 0 }))
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', ($, e) => e)
+  on('command.register', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  on('prompt.compose', () => ({ sections: [] }))
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ plugin: 'progress-band', surface: 'terminal', ...band(60) } as never)
+  expect(await ui.find({ type: 'Text', text: /My step/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Their step/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Drag fix/ })).toBeUndefined()
+  await ui.unmount()
+
+  const { sections } = await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] })
+  expect(sections.find(s => s.id === 'progress-band:instructions')?.text).toContain(`JSON file in ${HOME}/.claude/progress/sess-A/`)
+})
+
+test('a teammate is told to leave progress files to its lead, with no folder to write', async ($, on) => {
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : e.name === 'CLAUDECODE' ? '1' : undefined }))
+  on('session.id', () => ({ value: 'sess-T' }))
+  on('session.start', ($, e) => e)
+  on('prompt.compose', () => ({ sections: [] }))
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+  const { sections } = await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] })
+  const text = sections.find(s => s.id === 'progress-band:instructions')?.text ?? ''
+  expect(text).toContain('Do not write progress files')
+  expect(text).not.toContain('.claude/progress')
+})
