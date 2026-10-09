@@ -135,6 +135,10 @@ The README images are drawn by the band's own render code from made-up sample da
 
 To try changes, load the folder directly: `claude --plugin-dir .`
 
+To ship a change to installed machines, release it: `sh tools/release.sh 1.1.0` (checks, version bump,
+commit, tag), then `git push --follow-tags`. Installed copies only update when the version goes up; the
+install command, run again, updates them.
+
 ## License
 
 MIT
