@@ -1,0 +1,12 @@
+{
+  "name": "progress-band",
+  "description": "A live progress band above the Claude Code prompt",
+  "owner": { "name": "anthonybo", "url": "https://github.com/anthonybo" },
+  "plugins": [
+    {
+      "name": "progress-band",
+      "description": "A live band above the prompt: a bar for each row of ~/.claude/progress/*.json and every agent's status. Teaches Claude to keep those files current.",
+      "source": "./"
+    }
+  ]
+}
