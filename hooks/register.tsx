@@ -92,7 +92,10 @@ const clocks = atom({ plugin: 'progress-band', key: 'agentClocks' } as const, { 
 let clocksLoaded = false
 // Finished rows' clocks are in $.store instead: $.state lasts only as long as the session process, so a
 // reopened session saw every finished row as newly finished and showed it again for two minutes.
-const DONE_KEY = 'doneSince'
+// The store is shared by every session, so each keeps its own key (`doneSince:<session id>`): with one key,
+// a band that sees other rows pruned and overwrote the other sessions' clocks.
+const DONE_PREFIX = 'doneSince:'
+let doneKey = ''
 let savedDone = ''
 // The last rows drawn; a change runs a rainbow round the frame for RAINBOW_MS, then it stops (no idle cost).
 let lastKey = ''
@@ -120,7 +123,17 @@ async function loadClocks($: EngineInterface) {
   clocksLoaded = true
   const saved = await read($, clocks)
   for (const [k, v] of Object.entries(saved.firstSeen)) firstSeen.set(k, v)
-  const done = (await $.store.get(DONE_KEY).catch(() => undefined)) as DoneSince | undefined
+  const base = await progressDir($)
+  const id = sessionDir.startsWith(`${base}/`) ? sessionDir.slice(base.length + 1) : ''
+  doneKey = DONE_PREFIX + id
+  // Drop what no session can use: 1.1.0's one shared key, and the keys of sessions whose folder is gone.
+  for (const key of await $.store.keys().catch(() => [] as string[])) {
+    const stale =
+      key === 'doneSince' ||
+      (key.startsWith(DONE_PREFIX) && key !== doneKey && !(await $.fs.exists(`${base}/${key.slice(DONE_PREFIX.length)}`)))
+    if (stale) await $.store.delete(key).catch(() => {})
+  }
+  const done = (await $.store.get(doneKey).catch(() => undefined)) as DoneSince | undefined
   if (done !== null && typeof done === 'object') {
     for (const [k, v] of Object.entries(done)) {
       if (typeof v?.at === 'number' && typeof v.value === 'string') doneSince.set(k, v)
@@ -137,7 +150,7 @@ async function saveClocks($: EngineInterface, rowKeys: Set<string>) {
   const done = JSON.stringify(Object.fromEntries(doneSince))
   if (done !== savedDone) {
     savedDone = done
-    await $.store.set(DONE_KEY, Object.fromEntries(doneSince)).catch(() => {})
+    await $.store.set(doneKey, Object.fromEntries(doneSince)).catch(() => {})
   }
 }
 

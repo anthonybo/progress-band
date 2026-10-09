@@ -93,7 +93,9 @@ test('a bar that moved shows sliding stripes while the rainbow runs, then goes s
 
 test('a reopened session does not bring back rows that finished in an earlier one', async ($, on) => {
   // What an earlier session saved: Pages reached 4/4 long ago and its two minutes ran out there.
-  const saved: Record<string, unknown> = { doneSince: { 'Docs/Pages': { at: 0, value: '4|' } } }
+  const saved: Record<string, unknown> = { 'doneSince:sess-R': { 'Docs/Pages': { at: 0, value: '4|' } } }
+  on('session.id', () => ({ value: 'sess-R' }))
+  on('store.keys', () => ({ value: Object.keys(saved) }))
   on('store.get', ($, e) => ({ value: saved[e.key] }))
   on('store.set', ($, e) => {
     saved[e.key] = e.value
@@ -102,7 +104,7 @@ test('a reopened session does not bring back rows that finished in an earlier on
   on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
   on('fs.write', () => ({ value: undefined }))
   on('fs.list', ($, e) => ({
-    value: e.path === `${HOME}/.claude/progress` ? [{ name: 'docs.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }] : [],
+    value: e.path === `${HOME}/.claude/progress/sess-R` ? [{ name: 'docs.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }] : [],
   }))
   on('fs.read', ($, e) => ({ value: e.path.endsWith('docs.json') ? PROGRESS : 'a\nb\nc\nd\n' }))
   on('fs.exists', () => ({ value: true }))
@@ -117,7 +119,7 @@ test('a reopened session does not bring back rows that finished in an earlier on
   expect(await ui.find({ type: 'Text', text: /4\/4/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /reviewer: reading chapter 2/ })).toBeDefined()
   // And it is still on record for the next reopen.
-  expect(saved.doneSince).toEqual({ 'Docs/Pages': { at: 0, value: '4|' } })
+  expect(saved['doneSince:sess-R']).toEqual({ 'Docs/Pages': { at: 0, value: '4|' } })
   await ui.unmount()
 })
 
@@ -275,4 +277,39 @@ test('a teammate is told to leave progress files to its lead, with no folder to 
   const text = sections.find(s => s.id === 'progress-band:instructions')?.text ?? ''
   expect(text).toContain('Do not write progress files')
   expect(text).not.toContain('.claude/progress')
+})
+
+test("one session's band leaves other sessions' finished-row clocks alone", async ($, on) => {
+  // Session A finished "My step" earlier; its clock is in the plugin store, which every session shares.
+  const saved: Record<string, unknown> = {}
+  on('store.get', ($, e) => ({ value: saved[e.key] }))
+  on('store.set', ($, e) => {
+    saved[e.key] = e.value
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: Object.keys(saved) }))
+  on('store.delete', ($, e) => {
+    delete saved[e.key]
+    return { value: undefined }
+  })
+  const doneA = { 'Mine/My step': { at: 0, value: '2|' } }
+  saved['doneSince'] = doneA // what 1.1.0 stored in one shared key
+  saved['doneSince:sess-A'] = doneA // session A's own
+  const file = (name: string) => [{ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false }]
+  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('session.id', () => ({ value: 'sess-B' }))
+  on('fs.list', ($, e) => ({ value: e.path === `${HOME}/.claude/progress/sess-B` ? file('b.json') : [] }))
+  on('fs.read', () => ({ value: JSON.stringify({ title: 'Theirs', items: [{ label: 'Their step', done: 2, total: 2 }] }) }))
+  on('fs.exists', () => ({ value: true }))
+  on('clock.now', () => ({ value: 60 * 60000 }))
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', ($, e) => e)
+  on('command.register', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+
+  // Session A's clocks are untouched, B keeps its own, and 1.1.0's shared key is gone.
+  expect(saved['doneSince:sess-A']).toEqual(doneA)
+  expect(Object.keys(saved['doneSince:sess-B'] as object)).toEqual(['Theirs/Their step'])
+  expect(saved['doneSince']).toBeUndefined()
 })
